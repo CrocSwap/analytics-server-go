@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -19,6 +20,7 @@ type EnsResp struct {
 }
 
 func (l *Loader) GetEns(address string) (ensRespBytes []byte, err error) {
+	address = strings.ToLower(address)
 	cacheKey := "ens" + address
 	if cached, ok := l.GetFromCache(cacheKey); ok {
 		return cached, nil
@@ -38,7 +40,7 @@ func (l *Loader) GetEns(address string) (ensRespBytes []byte, err error) {
 	return
 }
 
-const ENS_MAX_RETRIES = 5
+const ENS_MAX_RETRIES = 3
 
 func (l *Loader) fetchEns(address string) (ensResp EnsResp, err error) {
 	defer func() {
@@ -48,20 +50,37 @@ func (l *Loader) fetchEns(address string) (ensResp EnsResp, err error) {
 		}
 	}()
 
-	var reverse string
+	var domain string
 	for i := 0; i < ENS_MAX_RETRIES; i++ {
-		reverse, err = ens.ReverseResolve(l.ethClients[1], common.HexToAddress(address))
+		domain, err = ens.ReverseResolve(l.ethClients[1], common.HexToAddress(address))
 		if err != nil && (err.Error() == "not a resolver" || err.Error() == "no resolution" || err.Error() == "no contract code at given address") {
 			ensResp.Ens = nil
 			return ensResp, nil
 		}
-		if err != nil {
-			log.Printf("fetchEns error: %v", err)
+		if err != nil && err.Error() != "no address" {
+			log.Printf("fetchEns reverse error for \"%s\": %v", address, err)
 			time.Sleep(time.Second * time.Duration(i))
 			// time.Sleep(time.Second*time.Duration(i) + time.Millisecond*time.Duration(rand.Intn(1000)))
 			continue
 		}
-		ensResp.Ens = &reverse
+		if domain == ZERO_ADDRESS || (err != nil && err.Error() == "no address") {
+			ensResp.Ens = nil
+			return ensResp, nil
+		}
+		normDomain, _ := ens.NormaliseDomain(domain)
+		forwardAddr, err := ens.Resolve(l.ethClients[1], normDomain)
+		if err != nil && err.Error() != "unregistered name" && !strings.HasPrefix(err.Error(), "execution reverted") && err.Error() != "no address" && err.Error() != "no resolver" {
+			log.Printf("fetchEns forward error for \"%s\" - \"%s\": %v", address, domain, err)
+			time.Sleep(time.Second * time.Duration(i))
+			continue
+		}
+		if err != nil {
+			ensResp.Ens = nil
+			return ensResp, nil
+		}
+		if strings.ToLower(forwardAddr.Hex()) == address {
+			ensResp.Ens = &domain
+		}
 		return ensResp, nil
 	}
 	return

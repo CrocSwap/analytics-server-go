@@ -11,8 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 )
 
-const ENS_CACHE_TTL = 24 * time.Hour
+const ENS_CACHE_TTL = 72 * time.Hour
 const PRICE_CACHE_TTL = 2 * time.Minute
+const INFINITE_CACHE_TTL = time.Hour * 24 * 365
 
 type Loader struct {
 	NetCfg     NetworkConfig
@@ -33,12 +34,15 @@ func NewLoader(netCfg NetworkConfig) *Loader {
 	}
 	clientMap := make(map[int]bind.ContractBackend)
 	for _, chainCfg := range netCfg {
-		ethClient := NewBatchedEthClient(chainCfg)
-		clientMap[chainCfg.ChainID] = ethClient
+		if chainCfg.RPCEndpoint != "" {
+			ethClient := NewBatchedEthClient(chainCfg)
+			clientMap[chainCfg.ChainID] = ethClient
+		}
 	}
 
 	return &Loader{
-		Cache: map[[16]byte]CacheEntry{},
+		NetCfg: netCfg,
+		Cache:  map[[16]byte]CacheEntry{},
 		httpClient: &http.Client{
 			Timeout: 3 * time.Second,
 		},

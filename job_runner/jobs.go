@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/CrocSwap/analytics-server-go/loader"
+	"github.com/CrocSwap/analytics-server-go/types"
 )
 
 type Request struct {
@@ -49,7 +51,7 @@ func (r *JobRunner) RunJob(queryMap map[string]string, jobData []byte) (resp []b
 		if err != nil {
 			return nil, err
 		}
-		results, err := r.RunBatch([]Job{job})
+		results, err := r.RunBatch([]Job{job}, 5*time.Second)
 		if err != nil {
 			return nil, err
 		}
@@ -62,7 +64,7 @@ func (r *JobRunner) RunJob(queryMap map[string]string, jobData []byte) (resp []b
 		return nil, err
 	}
 
-	results, err := r.RunBatch(req.Data.Req)
+	results, err := r.RunBatch(req.Data.Req, DEFAULT_JOB_TIMEOUT)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +93,7 @@ func (r *JobRunner) RunJob(queryMap map[string]string, jobData []byte) (resp []b
 	return
 }
 
-const JOB_TIMEOUT = 10 * time.Second
+const DEFAULT_JOB_TIMEOUT = 10 * time.Second
 
 type JobResult struct {
 	ID     string
@@ -111,9 +113,9 @@ type JobResultResponse struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
-func (r *JobRunner) RunBatch(jobs []Job) (results []JobResult, err error) {
+func (r *JobRunner) RunBatch(jobs []Job, timeout time.Duration) (results []JobResult, err error) {
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithTimeout(context.Background(), JOB_TIMEOUT)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// Channel to collect job resultChan
@@ -125,11 +127,14 @@ func (r *JobRunner) RunBatch(jobs []Job) (results []JobResult, err error) {
 		go func(job Job) {
 			defer func() {
 				wg.Done()
-				recover() // channel will panic after timeout
+				if r := recover(); r != nil {
+					log.Println("job timed out", r)
+				}
+
 			}()
 			result, err := r.Execute(job)
 			if err != nil {
-				log.Printf("Error executing job %s: %v", job.ReqID, err)
+				log.Printf("Error executing job %s: %v", string(job.Args), err)
 			}
 			resultChan <- JobResult{ID: job.ReqID, Result: result, Err: err}
 
@@ -146,6 +151,7 @@ outer:
 		case result := <-resultChan:
 			results = append(results, result)
 			resultMap[result.ID] = result
+			// log.Println(len(resultMap), len(jobs))
 			if len(resultMap) == len(jobs) {
 				break outer
 			}
@@ -171,20 +177,24 @@ func (r *JobRunner) Execute(j Job) (resp []byte, err error) {
 	switch j.ConfigPath {
 	case "ens_address":
 		var args loader.EnsArgs
-		err := json.Unmarshal(j.Args, &args)
+		err = json.Unmarshal(j.Args, &args)
 		if err != nil {
 			return nil, err
 		}
 		resp, err = r.loader.GetEns(args.Address)
 	case "price":
 		var args loader.PriceArgs
-		err := json.Unmarshal(j.Args, &args)
+		err = json.Unmarshal(j.Args, &args)
 		if err != nil {
 			return nil, err
 		}
 		resp, err = r.loader.GetPrice(args)
 	default:
 		return nil, fmt.Errorf("unknown job type: %s", j.ConfigPath)
+	}
+
+	if err != nil {
+		log.Printf("Error executing job %v: %s", string(j.Args), err)
 	}
 
 	if resp == nil {
@@ -206,4 +216,159 @@ func parseJobFromQueryMap(queryMap map[string]string) (job Job, err error) {
 		err = fmt.Errorf("unknown job type: %s", job.ConfigPath)
 	}
 	return
+}
+
+// Caches prices for all tokens in non-empty pools, and fetches ENS domains for
+// users in latest transactions for top 7 pools (sorted by events)
+func (r *JobRunner) WarmUpCache() {
+	log.Println("Warming up cache...")
+	type chainData struct {
+		name          string
+		indexer       string
+		tokens        map[string]int // value is the number of events for the token
+		userAddresses map[string]struct{}
+	}
+	chains := map[types.ChainId]chainData{}
+	log.Println("netCfg:", r.loader.NetCfg)
+	for _, cfg := range r.loader.NetCfg {
+		chains[types.IntToChainId(cfg.ChainID)] = chainData{
+			name:          cfg.NetworkName,
+			indexer:       cfg.Graphcache,
+			tokens:        map[string]int{},
+			userAddresses: map[string]struct{}{},
+		}
+	}
+
+	log.Println("Chains:", chains)
+
+	wg := sync.WaitGroup{}
+	for chainId, chain := range chains {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Printf("Warming up cache for %s...", chain.name)
+			pools, err := loader.GetAllPoolStats(chain.indexer, chainId)
+			if err != nil {
+				log.Printf("Error fetching pool stats for chain %s: %v", chainId, err)
+				return
+			}
+
+			topPools := []loader.PoolStats{}
+			for i, pool := range pools {
+				if pool.Events > 0 {
+					chain.tokens[pool.Base] += pool.Events
+					chain.tokens[pool.Quote] += pool.Events
+					if i < 7 {
+						topPools = append(topPools, pool)
+					}
+				}
+			}
+
+			for _, pool := range topPools {
+				txs, err := loader.GetPoolTxs(chain.indexer, pool.PoolLoc)
+				if err != nil {
+					log.Printf("Error fetching pool txs for pool %s: %v", pool.PoolLoc, err)
+				}
+
+				for _, tx := range txs {
+					chain.userAddresses[tx.User] = struct{}{}
+				}
+			}
+
+		}()
+	}
+
+	wg.Wait()
+
+	type chainToken struct {
+		token string
+		chain string
+		count int
+	}
+
+	allTokens := []chainToken{}
+	allUserAddressesMap := map[string]struct{}{}
+	for _, chain := range chains {
+		for token, events := range chain.tokens {
+			allTokens = append(allTokens, chainToken{token, chain.name, events})
+		}
+		for user := range chain.userAddresses {
+			allUserAddressesMap[user] = struct{}{}
+		}
+	}
+
+	allUserAddresses := []string{}
+	for user := range allUserAddressesMap {
+		allUserAddresses = append(allUserAddresses, user)
+	}
+
+	slices.SortFunc(allTokens, func(i, j chainToken) int {
+		return j.count - i.count
+	})
+
+	// Goroutine to cache token prices
+	wg.Add(1)
+	go func() {
+		BATCH_SIZE := 20
+		for i := 0; i < len(allTokens); i += BATCH_SIZE {
+			end := i + BATCH_SIZE
+			if end > len(allTokens) {
+				end = len(allTokens)
+			}
+
+			batch := []Job{}
+
+			for _, token := range allTokens[i:end] {
+				job := Job{
+					ConfigPath: "price",
+					ReqID:      fmt.Sprintf("%s-%s", token.chain, token.token),
+					Args:       json.RawMessage(fmt.Sprintf(`{"asset_platform": "%s", "token_address": "%s"}`, token.chain, token.token)),
+				}
+				batch = append(batch, job)
+			}
+
+			_, err := r.RunBatch(batch, DEFAULT_JOB_TIMEOUT)
+			if err != nil {
+				log.Printf("Error fetching prices for tokens: %v", err)
+			}
+			log.Printf("Fetched %d/%d prices", end, len(allTokens))
+			time.Sleep(3 * time.Second)
+		}
+		log.Println("Price cache warmed up")
+		wg.Done()
+	}()
+
+	// Goroutine to cache ENS domains
+	wg.Add(1)
+	go func() {
+		BATCH_SIZE := 1000
+		for i := 0; i < len(allUserAddresses); i += BATCH_SIZE {
+			end := i + BATCH_SIZE
+			if end > len(allUserAddresses) {
+				end = len(allUserAddresses)
+			}
+
+			batch := []Job{}
+			for _, user := range allUserAddresses[i:end] {
+				job := Job{
+					ConfigPath: "ens_address",
+					ReqID:      user,
+					Args:       json.RawMessage(fmt.Sprintf(`{"address": "%s"}`, user)),
+				}
+				batch = append(batch, job)
+			}
+
+			_, err := r.RunBatch(batch, 40*time.Second)
+			if err != nil {
+				log.Printf("Error fetching ENS addresses for users: %v", err)
+			}
+			log.Printf("Fetched %d/%d ENS addresses", end, len(allUserAddresses))
+		}
+		log.Println("ENS cache warmed up")
+		wg.Done()
+	}()
+
+	wg.Wait()
+
+	log.Println("Cache warmed up")
 }

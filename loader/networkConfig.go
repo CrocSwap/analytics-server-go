@@ -14,6 +14,7 @@ type ChainConfig struct {
 	ChainID             int    `json:"chain_id"`
 	RPCEndpoint         string `json:"rpc"`
 	Subgraph            string `json:"subgraph"`
+	Graphcache          string `json:"graphcache"`
 	QueryContract       string `json:"query_contract"`
 	QueryContractABI    string `json:"query_contract_abi"`
 	KnockoutTickWidth   int    `json:"knockout_tick_width"`
@@ -40,6 +41,7 @@ func LoadNetworkConfig(path string) NetworkConfig {
 
 	for chainName, chainCfg := range config {
 		chainCfg.envVarOverride(chainName)
+		chainCfg.NetworkName = string(chainName)
 		config[chainName] = chainCfg
 	}
 
@@ -51,7 +53,6 @@ func (c *NetworkConfig) ChainConfig(chainId types.ChainId) (ChainConfig, bool) {
 	if isValid {
 		cfg, hasCfg := (*c)[netName]
 		if hasCfg {
-			cfg.NetworkName = string(netName)
 			cfg.envVarOverride(netName)
 			return cfg, true
 		}

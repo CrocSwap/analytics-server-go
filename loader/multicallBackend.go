@@ -1,11 +1,15 @@
+// Implementation of bind.ContractBackend with multicall support
+
 package loader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +52,7 @@ type BatchedEthClient struct {
 	jobChan       chan CallJob
 	multicallAbi  abi.ABI
 	client        *ethclient.Client
+	callCount     int
 }
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
@@ -91,7 +96,7 @@ func NewBatchedEthClient(chain ChainConfig) *BatchedEthClient {
 		codeCache:    make(map[string][]byte),
 	}
 	if !chain.MulticallDisabled && chain.MulticallContract != "" {
-		c.jobChan = make(chan CallJob)
+		c.jobChan = make(chan CallJob, 10000)
 		go c.multicallWorker()
 	}
 	return c
@@ -132,7 +137,10 @@ func (c *BatchedEthClient) contractDataCall(contract types.EthAddress, data []by
 	select {
 	case result := <-job.Result:
 		if !result.Success || result.Error != nil {
-			log.Printf("Warning multicall success=%v, calling manually. Error: %v", result.Success, result.Error)
+			if result.Error != nil && strings.HasPrefix(result.Error.Error(), "execution reverted") {
+				return []byte{}, result.Error
+			}
+			log.Printf("Warning multicall for %s success=%v, calling manually. Error: %v", c.Cfg.NetworkName, result.Success, result.Error)
 			return c.singleContractDataCall(contract, data, nil)
 		}
 		return result.ReturnData, nil
@@ -152,6 +160,10 @@ func (c *BatchedEthClient) singleContractDataCall(contract types.EthAddress, dat
 	}
 
 	result, err := c.client.CallContract(context.Background(), msg, blockNumber)
+	c.callCount++
+	if c.callCount%10 == 0 {
+		log.Printf("BatchedEthClient call count for %s: %d", c.Cfg.NetworkName, c.callCount)
+	}
 	if err != nil {
 		return []byte{}, err
 	}
@@ -160,7 +172,7 @@ func (c *BatchedEthClient) singleContractDataCall(contract types.EthAddress, dat
 
 // Goroutine that aggregates calls and sends them to the multicall contract after a timeout
 func (c *BatchedEthClient) multicallWorker() {
-	jobs := make([]CallJob, 0)
+	jobs := make([]CallJob, 0, 1000)
 	batchTimer := time.NewTimer(1<<63 - 1) // infinite timer until the first job
 	maxBatchSize := c.Cfg.MulticallMaxBatch
 	if maxBatchSize == 0 {
@@ -223,7 +235,7 @@ func (c *BatchedEthClient) multicall(jobs []CallJob) (err error) {
 		return nil
 	}
 
-	log.Printf("Sending %d calls to multicall", len(jobs))
+	log.Printf("Sending %d calls to multicall on %s", len(jobs), types.IntToChainId(c.Cfg.ChainID))
 	inputs := make([]Call3InputType, len(jobs))
 	for i, job := range jobs {
 		input := Call3InputType{
@@ -256,7 +268,7 @@ func (c *BatchedEthClient) multicall(jobs []CallJob) (err error) {
 		if result.Success {
 			job.Result <- MulticallResult{Success: true, ReturnData: result.ReturnData}
 		} else {
-			job.Result <- MulticallResult{Success: false}
+			job.Result <- MulticallResult{Success: false, Error: errors.New("execution reverted")}
 		}
 	}
 	return nil

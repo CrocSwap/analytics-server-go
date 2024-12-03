@@ -2,22 +2,39 @@ package loader
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/CrocSwap/analytics-server-go/utils"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 )
+
+// If the price of any of these assets is less than 1% away from $1 then return $1.
+// Users get confused when USD prices jump a tiny bit all the time.
+var ONE_USD_STABLECOINS = []string{
+	"0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4",
+	"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+	"0x4300000000000000000000000000000000000003",
+	"0xdac17f958d2ee523a2206206994597c13d831ec7",
+	"0xf55bec9cafdbe8730f096aa55dad6d22d44099df",
+	"0xca77eb3fefe3725dc33bccb54edefc3d9f764f97",
+	"0x6b175474e89094c44da98b954eedeac495271d0f",
+}
 
 type PriceArgs struct {
 	AssetPlatform string `json:"asset_platform"`
@@ -40,7 +57,7 @@ type PriceValue struct {
 
 type PriceSource struct {
 	name     string
-	getPrice func(args PriceArgs, cacheKey string) (PriceValue, error)
+	getPrice func(args PriceArgs, cacheKey string, ctx context.Context) (PriceValue, error)
 	price    *PriceValue
 }
 
@@ -60,6 +77,13 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
 		return cached, nil
 	}
 
+	normalArgs := l.fuzzyTokenLookup(args)
+	if normalArgs.AssetPlatform == "plume" || normalArgs.AssetPlatform == "swell" {
+		priceResp := PriceResp{}
+		priceRespBytes, _ = json.Marshal(priceResp)
+		return
+	}
+
 	// Ordered by priority. CoinGecko prices are more reliable.
 	priceSources := []PriceSource{
 		{
@@ -68,18 +92,25 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
 			price:    &PriceValue{TokenAddress: args.TokenAddress, PriceSource: "1"},
 		},
 		{
+			name:     "Llama",
+			getPrice: l.fetchLlamaPrice,
+			price:    &PriceValue{TokenAddress: args.TokenAddress, PriceSource: "2"},
+		},
+		{
 			name:     "DEXScreener",
 			getPrice: l.fetchDexScreenerPrice,
-			price:    &PriceValue{TokenAddress: args.TokenAddress, PriceSource: "2"},
+			price:    &PriceValue{TokenAddress: args.TokenAddress, PriceSource: "3"},
 		},
 	}
 
 	wg := sync.WaitGroup{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for _, source := range priceSources {
 		wg.Add(1)
 		go func(source PriceSource) {
 			defer wg.Done()
-			price, err := source.getPrice(args, cacheKey)
+			price, err := source.getPrice(normalArgs, cacheKey, ctx)
 			if err != nil {
 				price.err = err
 			}
@@ -95,8 +126,20 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
 	for _, source := range priceSources {
 		if source.price.err == nil && source.price.UsdPrice > 0 {
 			priceValue = *source.price
+			if slices.Index(ONE_USD_STABLECOINS, args.TokenAddress) != -1 && math.Abs(priceValue.UsdPrice-1) < 0.01 {
+				priceValue.UsdPrice = 1
+			}
 			break
 		}
+	}
+
+	if priceValue.UsdPrice > 10e7 {
+		priceValue.UsdPrice = 0
+		priceValue.PriceSource = "0"
+	}
+
+	if args.TokenAddress == "0xd294412741ee08aa3a35ac179ff0b4d9d7fefb27" { // fake SCR
+		priceValue.UsdPrice = 0.0000000000001
 	}
 
 	priceResp := PriceResp{
@@ -108,8 +151,9 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
 	}
 
 	// since price requests aren't batched, it's better to spread out the cache TTL to smooth out bursts
-	cache_ttl := PRICE_CACHE_TTL + time.Second*time.Duration(rand.Intn(20))
+	cache_ttl := PRICE_CACHE_TTL + time.Second*time.Duration(rand.Intn(40))
 	l.AddToCache(cacheKey, priceRespBytes, cache_ttl)
+	log.Printf("Cached price for %v: %v", args, priceValue)
 	return
 }
 
@@ -117,15 +161,24 @@ type coinGeckoResponse struct {
 	Usd float64 `json:"usd"`
 }
 
+type llamaResponse struct {
+	Coins map[string]llamaCoinPrice `json:"coins"`
+}
+
+type llamaCoinPrice struct {
+	Price      float64 `json:"price"`
+	Timestamp  int64   `json:"timestamp"`
+	Confidence float64 `json:"confidence"`
+}
+
 // Most coins aren't on coingecko, so they don't need to be updated often.
 const COINGECKO_NO_PRICE_CACHE_TTL = 8 * time.Hour
 
-func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string) (price PriceValue, err error) {
-	log.Println("CoinGecko price fetch", args)
-	price.TokenAddress = args.TokenAddress
+func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
 	if _, ok := l.GetFromCache("coingecko_missing" + cacheKey); ok {
 		return
 	}
+	log.Println("CoinGecko price fetch", args)
 
 	urlString := "https://pro-api.coingecko.com/api/v3"
 	params := map[string]string{
@@ -154,7 +207,7 @@ func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string) (price Pri
 	urlString = u.String()
 
 	headers := map[string]string{"x-cg-pro-api-key": os.Getenv("COINGECKO_API_KEY"), "accept": "application/json"}
-	resp, err := l.httpRequest("GET", urlString, nil, headers)
+	resp, err := l.httpRequest("GET", urlString, nil, headers, 3, ctx)
 
 	if err != nil {
 		return
@@ -171,6 +224,42 @@ func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string) (price Pri
 		return price, errors.New("token not found in response")
 	}
 	price.UsdPrice = cgResp[tokenId].Usd
+	return
+}
+
+const LLAMA_MIN_CONFIDENCE = 0.5
+const LLAMA_NO_PRICE_CACHE_TTL = 5 * time.Minute
+
+func (l *Loader) fetchLlamaPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
+	if _, ok := l.GetFromCache("llama_missing" + cacheKey); ok {
+		return
+	}
+	log.Println("Llama price fetch", args)
+
+	tokenId := fmt.Sprintf("%s:%s", args.AssetPlatform, args.TokenAddress)
+	urlString := fmt.Sprintf("https://coins.llama.fi/prices/current/%s?searchWidth=1h", tokenId)
+
+	headers := map[string]string{"accept": "application/json"}
+	resp, err := l.httpRequest("GET", urlString, nil, headers, 3, ctx)
+
+	if err != nil {
+		return
+	}
+
+	var llamaResp llamaResponse
+	err = json.Unmarshal(resp, &llamaResp)
+	if err != nil {
+		return
+	}
+
+	if _, ok := llamaResp.Coins[tokenId]; !ok {
+		l.AddToCache("llama_missing"+cacheKey, []byte{1}, LLAMA_NO_PRICE_CACHE_TTL)
+		return price, errors.New("token not found in response")
+	}
+	if llamaResp.Coins[tokenId].Confidence < LLAMA_MIN_CONFIDENCE {
+		return price, nil
+	}
+	price.UsdPrice = llamaResp.Coins[tokenId].Price
 	return
 }
 
@@ -196,17 +285,27 @@ type DexScreenerTokensResp struct {
 			Base  float64 `json:"base"`
 			Quote float64 `json:"quote"`
 		} `json:"liquidity"`
+		BaseToken struct {
+			Address string `json:"address"`
+			Name    string `json:"name"`
+			Symbol  string `json:"symbol"`
+		} `json:"baseToken"`
+		QuoteToken struct {
+			Address string `json:"address"`
+			Name    string `json:"name"`
+			Symbol  string `json:"symbol"`
+		} `json:"quoteToken"`
 	} `json:"pairs"`
 }
 
-func (l *Loader) fetchDexScreenerPrice(args PriceArgs, cacheKey string) (price PriceValue, err error) {
+func (l *Loader) fetchDexScreenerPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
 	tokenAddress := args.TokenAddress
 	if tokenAddress == "0x0000000000000000000000000000000000000000" {
 		tokenAddress = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 	}
 	log.Println("DexScreener price fetch", args)
 	urlString := "https://api.dexscreener.com/latest/dex/tokens/" + tokenAddress
-	resp, err := l.httpRequest("GET", urlString, nil, nil)
+	resp, err := l.httpRequest("GET", urlString, nil, nil, 2, ctx)
 
 	if err != nil {
 		return
@@ -325,12 +424,127 @@ func getDexScreenerPrice(ds *DexScreenerTokensResp, tokenAddress string) (price 
 	// }
 }
 
-const HTTP_MAX_RETRIES = 5
+func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
+	// Sometimes tokens get sent with the wrong platform, so this is temporary for
+	// for the most common tokens
+	switch args.TokenAddress {
+	case "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48":
+		args.AssetPlatform = "ethereum"
+	case "0xdac17f958d2ee523a2206206994597c13d831ec7":
+		args.AssetPlatform = "ethereum"
+	case "0x6b175474e89094c44da98b954eedeac495271d0f":
+		args.AssetPlatform = "ethereum"
+	case "0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4":
+		args.AssetPlatform = "scroll"
+	case "0xf55bec9cafdbe8730f096aa55dad6d22d44099df":
+		args.AssetPlatform = "scroll"
+	case "0xa25b25548b4c98b0c7d3d27dca5d5ca743d68b7f":
+		args.AssetPlatform = "scroll"
+	case "0x3c1bca5a656e69edcd0d4e36bebb3fcdaca60cf1":
+		args.AssetPlatform = "scroll"
+	case "0x01f0a31698c4d065659b9bdc21b3610292a1c506":
+		args.AssetPlatform = "scroll"
+	case "0x4300000000000000000000000000000000000003":
+		args.AssetPlatform = "blast"
+	case "0xb1a5700fa2358173fe465e6ea4ff52e36e88e2ad":
+		args.AssetPlatform = "blast"
+	case "0x04c0599ae5a44757c0af6f9ec3b93da8976c150a":
+		args.AssetPlatform = "blast"
+	case "0xe7903b1f75c534dd8159b313d92cdcfbc62cb3cd":
+		args.AssetPlatform = "blast"
+	case "0x2416092f143378750bb29b79ed961ab195cceea5":
+		args.AssetPlatform = "blast"
+	}
 
-func (l *Loader) httpRequest(method string, url string, body []byte, headers map[string]string) (respBody []byte, err error) {
+	switch args.AssetPlatform {
+	case "scroll":
+		switch args.TokenAddress {
+		case "0xa25b25548b4c98b0c7d3d27dca5d5ca743d68b7f": // wrsETH
+			args.TokenAddress = "0xa1290d69c65a6fe4df752f95823fae25cb99e5a7"
+			args.AssetPlatform = "ethereum"
+		case "0x06efdbff2a14a7c8e15944d1f4a48f9f95f663a4": // USDC
+			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+			args.AssetPlatform = "ethereum"
+		case "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34": // USDe
+			args.TokenAddress = "0x4c9edd5852cd905f086c759e8383e09bff1e68b3"
+			args.AssetPlatform = "ethereum"
+		case "0x211cc4dd073734da055fbf44a2b4667d5e5fe5d2": // sUSDe
+			args.TokenAddress = "0x9d39a5de30e57443bff2a8307a4256c8797a3497"
+			args.AssetPlatform = "ethereum"
+		case "0x5300000000000000000000000000000000000004": // WETH
+			args.TokenAddress = "0x0000000000000000000000000000000000000000"
+			args.AssetPlatform = "ethereum"
+		case "0x89f17ab70cafb1468d633056161573efefea0713": // rswETH
+			args.TokenAddress = "0xfae103dc9cf190ed75350761e95403b7b8afa6c0"
+			args.AssetPlatform = "ethereum"
+		default: // maybe bridged token
+			counterpart := l.getScrollCounterpart(args.TokenAddress)
+			if counterpart != "" && counterpart != ZERO_ADDRESS {
+				log.Println("Found scroll counterpart", counterpart, "for", args.TokenAddress)
+				args.TokenAddress = counterpart
+				args.AssetPlatform = "ethereum"
+			}
+		}
+	case "blast":
+		switch args.TokenAddress {
+		case "0x4300000000000000000000000000000000000004": // WETH
+			args.TokenAddress = "0x0000000000000000000000000000000000000000"
+			args.AssetPlatform = "ethereum"
+		case "0xe7903b1f75c534dd8159b313d92cdcfbc62cb3cd": // wrsETH
+			args.TokenAddress = "0xa1290d69c65a6fe4df752f95823fae25cb99e5a7"
+			args.AssetPlatform = "ethereum"
+		case "0x2416092f143378750bb29b79ed961ab195cceea5": // ezETH
+			args.TokenAddress = "0xbf5495efe5db9ce00f80364c8b423567e58d2110"
+			args.AssetPlatform = "ethereum"
+		}
+	}
+	return args
+}
 
-	for i := 0; i < HTTP_MAX_RETRIES; i++ {
-		req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+const RPC_MAX_RETRIES = 2
+
+func (l *Loader) getScrollCounterpart(tokenAddress string) (counterpart string) {
+	counterpartBytes, ok := l.GetFromCache("scroll_counterpart_" + tokenAddress)
+	if ok && counterpartBytes != nil && string(counterpartBytes) != ZERO_ADDRESS {
+		return string(counterpartBytes)
+	}
+	log.Printf("Getting scroll counterpart for %s", tokenAddress)
+
+	ethClient := l.ethClients[534352]
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	addr := common.HexToAddress(tokenAddress)
+	msg := ethereum.CallMsg{
+		To:   &addr,
+		Data: []byte{0x79, 0x75, 0x94, 0xb0},
+	}
+	for i := 0; i < RPC_MAX_RETRIES; i++ {
+		resp, err := ethClient.CallContract(ctx, msg, nil)
+		if err != nil {
+			if strings.Contains(err.Error(), "execution reverted") {
+				counterpart = ZERO_ADDRESS
+				break
+			}
+			log.Printf("Error getting scroll counterpart: %v", err)
+			time.Sleep(time.Second * time.Duration(i))
+			continue
+		}
+		counterpart = strings.ToLower(common.BytesToAddress(resp).Hex())
+		break
+	}
+	ttl := INFINITE_CACHE_TTL
+	if len(counterpart) == 0 { // if there was an error, retry soon
+		ttl = 10 * time.Minute
+	}
+	l.AddToCache("scroll_counterpart_"+tokenAddress, []byte(counterpart), ttl)
+	log.Printf("Cached scroll counterpart for %s: %s", tokenAddress, counterpart)
+	return
+}
+
+func (l *Loader) httpRequest(method string, url string, body []byte, headers map[string]string, attempts int, ctx context.Context) (respBody []byte, err error) {
+
+	for i := 0; i < attempts; i++ {
+		req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
 		if err != nil {
 			return nil, err
 		}
@@ -341,6 +555,9 @@ func (l *Loader) httpRequest(method string, url string, body []byte, headers map
 
 		resp, err := l.httpClient.Do(req)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				return nil, err
+			}
 			log.Printf("Error making request to: \"%s\", retrying: %s", url, err)
 			time.Sleep(time.Second*time.Duration(i) + time.Millisecond*time.Duration(rand.Intn(1000)))
 			continue

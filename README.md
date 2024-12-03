@@ -11,7 +11,8 @@ To compile, from the project root directory call
 After building, specify required environment variables:
 
  * `COINGECKO_API_KEY` - CoinGecko API key
- * `RPC_MAINNET` - Ethereum mainnet RPC URL
+ * `RPC_ETHEREUM` - Ethereum mainnet RPC URL
+ * `RPC_SCROLL` - Scroll RPC URL
 
 Then from the project root directory call
 
