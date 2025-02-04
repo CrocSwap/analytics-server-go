@@ -267,7 +267,7 @@ func (r *JobRunner) WarmUpCache() {
 			for _, pool := range topPools {
 				txs, err := loader.GetPoolTxs(chain.indexer, pool.PoolLoc)
 				if err != nil {
-					log.Printf("Error fetching pool txs for pool %s: %v", pool.PoolLoc, err)
+					log.Printf("Error fetching pool txs for pool %v: %v", pool.PoolLoc, err)
 				}
 
 				for _, tx := range txs {

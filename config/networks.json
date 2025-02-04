@@ -28,5 +28,28 @@
     "multicall_contract": "0xcA11bde05977b3631167028862bE2a173976CA11",
     "multicall_max_batch": 100,
     "multicall_interval_ms": 200
+  },
+  "plume": {
+    "chain_id": 98865,
+    "rpc": "",
+    "subgraph": "",
+    "graphcache": "https://ambindexer.net/plume-gcgo",
+    "query_contract": "0xA3BD3bE19012De72190c885FB270beb93e36a8A7",
+    "knockout_tick_width": 4,
+    "multicall_disabled": false,
+    "multicall_contract": "0xca11bde05977b3631167028862be2a173976ca11",
+    "multicall_max_batch": 100,
+    "multicall_interval_ms": 1000
+  },
+  "swell": {
+    "chain_id": 1923,
+    "rpc": "",
+    "graphcache": "https://ambindexer.net/swell-gcgo",
+    "query_contract": "0xaab17419f062bb28cdbe82f9fc05e7c47c3f6194",
+    "knockout_tick_width": 4,
+    "multicall_disabled": false,
+    "multicall_contract": "0xca11bde05977b3631167028862be2a173976ca11",
+    "multicall_max_batch": 100,
+    "multicall_interval_ms": 1000
   }
 }

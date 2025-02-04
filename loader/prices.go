@@ -34,6 +34,10 @@ var ONE_USD_STABLECOINS = []string{
 	"0xf55bec9cafdbe8730f096aa55dad6d22d44099df",
 	"0xca77eb3fefe3725dc33bccb54edefc3d9f764f97",
 	"0x6b175474e89094c44da98b954eedeac495271d0f",
+	"0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",
+	"0x3938a812c54304feffd266c7e2e70b48f9475ad6",
+	"0xa849026cda282eeebc3c39afcbe87a69424f16b4",
+	"0xdddd73f5df1f0dc31373357beac77545dc5a6f3f",
 }
 
 type PriceArgs struct {
@@ -459,6 +463,8 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 	switch args.AssetPlatform {
 	case "scroll":
 		switch args.TokenAddress {
+		case ZERO_ADDRESS:
+			args.AssetPlatform = "ethereum"
 		case "0xa25b25548b4c98b0c7d3d27dca5d5ca743d68b7f": // wrsETH
 			args.TokenAddress = "0xa1290d69c65a6fe4df752f95823fae25cb99e5a7"
 			args.AssetPlatform = "ethereum"
@@ -487,6 +493,8 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		}
 	case "blast":
 		switch args.TokenAddress {
+		case ZERO_ADDRESS:
+			args.AssetPlatform = "ethereum"
 		case "0x4300000000000000000000000000000000000004": // WETH
 			args.TokenAddress = "0x0000000000000000000000000000000000000000"
 			args.AssetPlatform = "ethereum"
@@ -495,6 +503,58 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 			args.AssetPlatform = "ethereum"
 		case "0x2416092f143378750bb29b79ed961ab195cceea5": // ezETH
 			args.TokenAddress = "0xbf5495efe5db9ce00f80364c8b423567e58d2110"
+			args.AssetPlatform = "ethereum"
+		}
+	case "swell":
+		switch args.TokenAddress {
+		case ZERO_ADDRESS:
+			args.AssetPlatform = "ethereum"
+		case "0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34": // USDe
+			args.TokenAddress = "0x4c9edd5852cd905f086c759e8383e09bff1e68b3"
+			args.AssetPlatform = "ethereum"
+		case "0x18d33689ae5d02649a859a1cf16c9f0563975258": // rswETH
+			args.TokenAddress = "0xfae103dc9cf190ed75350761e95403b7b8afa6c0"
+			args.AssetPlatform = "ethereum"
+		case "0xc3eacf0612346366db554c991d7858716db09f58": // rsETH
+			args.TokenAddress = "0xa1290d69c65a6fe4df752f95823fae25cb99e5a7"
+			args.AssetPlatform = "ethereum"
+		case "0x09341022ea237a4db1644de7ccf8fa0e489d85b7": // swETH
+			args.TokenAddress = "0xf951e335afb289353dc249e82926178eac7ded78"
+			args.AssetPlatform = "ethereum"
+		case "0xa6cb988942610f6731e664379d15ffcfbf282b44": // weETH
+			args.TokenAddress = "0xcd5fe23c85820f7b72d0926fc9b05b43e359b7ee"
+			args.AssetPlatform = "ethereum"
+		case "0x2416092f143378750bb29b79ed961ab195cceea5": // ezETH
+			args.TokenAddress = "0xbf5495efe5db9ce00f80364c8b423567e58d2110"
+			args.AssetPlatform = "ethereum"
+		case "0x9cb41cd74d01ae4b4f640ec40f7a60ca1bcf83e7": // pzETH
+			args.TokenAddress = "0x8c9532a60e0e7c6bbd2b2c1303f63ace1c3e9811"
+			args.AssetPlatform = "ethereum"
+		case "0x2826d136f5630ada89c1678b64a61620aab77aea": // SWELL
+			args.TokenAddress = "0x0a6e7ba5042b38349e437ec6db6214aec7b35676"
+			args.AssetPlatform = "ethereum"
+		case "0x58538e6a46e07434d7e7375bc268d3cb839c0133": // ENA
+			args.TokenAddress = "0x57e114b691db790c35207b2e685d4a43181e6061"
+			args.AssetPlatform = "ethereum"
+		}
+	case "plume":
+		switch args.TokenAddress {
+		case ZERO_ADDRESS:
+			args.AssetPlatform = "ethereum"
+			// case "PLUME": // PLUME
+			// 	args.TokenAddress = "0x4c1746a800d224393fe2470c70a35717ed4ea5f1"
+			// 	args.AssetPlatform = "ethereum"
+		case "0x3938a812c54304feffd266c7e2e70b48f9475ad6": // USDC.e
+			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+			args.AssetPlatform = "ethereum"
+		case "0xa849026cda282eeebc3c39afcbe87a69424f16b4": // USDT
+			args.TokenAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+			args.AssetPlatform = "ethereum"
+		case "0xd630fb6a07c9c723cf709d2daa9b63325d0e0b73": // pETH
+			args.TokenAddress = ZERO_ADDRESS // TODO: change once there are price sources
+			args.AssetPlatform = "ethereum"
+		case "0xdddd73f5df1f0dc31373357beac77545dc5a6f3f": // pUSD
+			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" // TODO: change once there are price sources
 			args.AssetPlatform = "ethereum"
 		}
 	}
