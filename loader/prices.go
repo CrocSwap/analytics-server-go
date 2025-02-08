@@ -38,6 +38,7 @@ var ONE_USD_STABLECOINS = []string{
 	"0x3938a812c54304feffd266c7e2e70b48f9475ad6",
 	"0xa849026cda282eeebc3c39afcbe87a69424f16b4",
 	"0xdddd73f5df1f0dc31373357beac77545dc5a6f3f",
+	"0x6f2a1a886dbf8e36c4fa9f25a517861a930fbf3a",
 }
 
 type PriceArgs struct {
@@ -67,7 +68,7 @@ type PriceSource struct {
 
 const GET_PRICE_TIMEOUT = 2 * time.Second
 
-func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
+func (l *Loader) GetPrice(args PriceArgs) (priceRespJson []byte, respCached bool, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("GetPrice panic: %v", r)
@@ -76,16 +77,18 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
 	}()
 	args.AssetPlatform = strings.ToLower(args.AssetPlatform)
 	args.TokenAddress = strings.ToLower(args.TokenAddress)
-	cacheKey := "price" + args.AssetPlatform + args.TokenAddress
-	if cached, ok := l.GetFromCache(cacheKey); ok {
-		return cached, nil
-	}
-
 	normalArgs := l.fuzzyTokenLookup(args)
+
+	// Since no price sources support these chains, return empty responses.
 	if normalArgs.AssetPlatform == "plume" || normalArgs.AssetPlatform == "swell" {
 		priceResp := PriceResp{}
-		priceRespBytes, _ = json.Marshal(priceResp)
-		return
+		priceRespJson, _ = json.Marshal(priceResp)
+		return priceRespJson, true, nil
+	}
+
+	cacheKey := "price" + normalArgs.AssetPlatform + normalArgs.TokenAddress
+	if cached, ok := l.GetFromCache(cacheKey); ok {
+		return cached, true, nil
 	}
 
 	// Ordered by priority. CoinGecko prices are more reliable.
@@ -149,16 +152,16 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespBytes []byte, err error) {
 	priceResp := PriceResp{
 		Value: priceValue,
 	}
-	priceRespBytes, err = json.Marshal(priceResp)
+	priceRespJson, err = json.Marshal(priceResp)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// since price requests aren't batched, it's better to spread out the cache TTL to smooth out bursts
 	cache_ttl := PRICE_CACHE_TTL + time.Second*time.Duration(rand.Intn(40))
-	l.AddToCache(cacheKey, priceRespBytes, cache_ttl)
+	l.AddToCache(cacheKey, priceRespJson, cache_ttl)
 	log.Printf("Cached price for %v: %v", args, priceValue)
-	return
+	return priceRespJson, false, nil
 }
 
 type coinGeckoResponse struct {
@@ -176,7 +179,7 @@ type llamaCoinPrice struct {
 }
 
 // Most coins aren't on coingecko, so they don't need to be updated often.
-const COINGECKO_NO_PRICE_CACHE_TTL = 8 * time.Hour
+const COINGECKO_NO_PRICE_CACHE_TTL = 4 * time.Hour
 
 func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
 	if _, ok := l.GetFromCache("coingecko_missing" + cacheKey); ok {
@@ -565,7 +568,7 @@ const RPC_MAX_RETRIES = 2
 
 func (l *Loader) getScrollCounterpart(tokenAddress string) (counterpart string) {
 	counterpartBytes, ok := l.GetFromCache("scroll_counterpart_" + tokenAddress)
-	if ok && counterpartBytes != nil && string(counterpartBytes) != ZERO_ADDRESS {
+	if ok && counterpartBytes != nil {
 		return string(counterpartBytes)
 	}
 	log.Printf("Getting scroll counterpart for %s", tokenAddress)
@@ -593,8 +596,8 @@ func (l *Loader) getScrollCounterpart(tokenAddress string) (counterpart string) 
 		break
 	}
 	ttl := INFINITE_CACHE_TTL
-	if len(counterpart) == 0 { // if there was an error, retry soon
-		ttl = 10 * time.Minute
+	if len(counterpart) == 0 || counterpart == ZERO_ADDRESS { // if there was an error, retry soon
+		ttl = 30 * time.Minute
 	}
 	l.AddToCache("scroll_counterpart_"+tokenAddress, []byte(counterpart), ttl)
 	log.Printf("Cached scroll counterpart for %s: %s", tokenAddress, counterpart)

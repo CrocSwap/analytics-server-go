@@ -16,11 +16,12 @@ const PRICE_CACHE_TTL = 2 * time.Minute
 const INFINITE_CACHE_TTL = time.Hour * 24 * 365
 
 type Loader struct {
-	NetCfg     NetworkConfig
-	Cache      map[[16]byte]CacheEntry
-	CacheLock  sync.RWMutex
-	httpClient *http.Client
-	ethClients map[int]bind.ContractBackend
+	NetCfg          NetworkConfig
+	Cache           map[[16]byte]CacheEntry
+	CacheLock       sync.RWMutex
+	poolStatsWorker PoolStatsWorker
+	httpClient      *http.Client
+	ethClients      map[int]bind.ContractBackend
 }
 
 type CacheEntry struct {
@@ -48,6 +49,15 @@ func NewLoader(netCfg NetworkConfig) *Loader {
 		},
 		ethClients: clientMap,
 	}
+}
+
+func (l *Loader) StartPoolStatsWorker() {
+	l.poolStatsWorker = PoolStatsWorker{
+		loader:    l,
+		prices:    map[PriceArgs]float64{},
+		poolStats: []PoolStats{},
+	}
+	go l.poolStatsWorker.RunPoolStatsWorker()
 }
 
 func (l *Loader) AddToCache(key string, data []byte, ttl time.Duration) {

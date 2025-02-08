@@ -19,7 +19,7 @@ type EnsResp struct {
 	Ens *string `json:"ens_address"`
 }
 
-func (l *Loader) GetEns(address string) (ensRespBytes []byte, err error) {
+func (l *Loader) GetEns(address string) (ensRespJson []byte, err error) {
 	address = strings.ToLower(address)
 	cacheKey := "ens" + address
 	if cached, ok := l.GetFromCache(cacheKey); ok {
@@ -31,12 +31,12 @@ func (l *Loader) GetEns(address string) (ensRespBytes []byte, err error) {
 		return nil, err
 	}
 
-	ensRespBytes, err = json.Marshal(ensResp)
+	ensRespJson, err = json.Marshal(ensResp)
 	if err != nil {
 		return nil, err
 	}
 
-	l.AddToCache(cacheKey, ensRespBytes, ENS_CACHE_TTL)
+	l.AddToCache(cacheKey, ensRespJson, ENS_CACHE_TTL)
 	return
 }
 

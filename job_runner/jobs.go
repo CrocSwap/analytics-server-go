@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -41,6 +42,7 @@ func NewJobRunner(netCfg loader.NetworkConfig) *JobRunner {
 		jobChannel: jobChannel,
 		loader:     loader.NewLoader(netCfg),
 	}
+	store.loader.StartPoolStatsWorker()
 	return store
 }
 
@@ -188,7 +190,14 @@ func (r *JobRunner) Execute(j Job) (resp []byte, err error) {
 		if err != nil {
 			return nil, err
 		}
-		resp, err = r.loader.GetPrice(args)
+		resp, _, err = r.loader.GetPrice(args)
+	case "all_pool_stats":
+		var args loader.PoolLoc
+		err = json.Unmarshal(j.Args, &args)
+		if err != nil {
+			return nil, err
+		}
+		resp = r.loader.GetAllPoolStats(args)
 	default:
 		return nil, fmt.Errorf("unknown job type: %s", j.ConfigPath)
 	}
@@ -212,6 +221,11 @@ func parseJobFromQueryMap(queryMap map[string]string) (job Job, err error) {
 		job.Args = json.RawMessage(fmt.Sprintf(`{"address": "%s"}`, queryMap["address"]))
 	case "price":
 		job.Args = json.RawMessage(fmt.Sprintf(`{"asset_platform": "%s", "token_address": "%s"}`, queryMap["asset_platform"], queryMap["token_address"]))
+	case "pool_stats":
+	case "all_pool_stats":
+		poolIdx, _ := strconv.Atoi(queryMap["poolIdx"])
+		job.Args = json.RawMessage(fmt.Sprintf(`{"chainId": "%s", "base": "%s", "quote": "%s", "poolIdx": %s}`, queryMap["chainId"], queryMap["base"], queryMap["quote"], strconv.Itoa(poolIdx)))
+		log.Println("Job args:", string(job.Args))
 	default:
 		err = fmt.Errorf("unknown job type: %s", job.ConfigPath)
 	}
@@ -225,8 +239,8 @@ func (r *JobRunner) WarmUpCache() {
 	type chainData struct {
 		name          string
 		indexer       string
-		tokens        map[string]int // value is the number of events for the token
-		userAddresses map[string]struct{}
+		tokens        map[types.EthAddress]int // value is the number of events for the token
+		userAddresses map[types.EthAddress]struct{}
 	}
 	chains := map[types.ChainId]chainData{}
 	log.Println("netCfg:", r.loader.NetCfg)
@@ -234,8 +248,8 @@ func (r *JobRunner) WarmUpCache() {
 		chains[types.IntToChainId(cfg.ChainID)] = chainData{
 			name:          cfg.NetworkName,
 			indexer:       cfg.Graphcache,
-			tokens:        map[string]int{},
-			userAddresses: map[string]struct{}{},
+			tokens:        map[types.EthAddress]int{},
+			userAddresses: map[types.EthAddress]struct{}{},
 		}
 	}
 
@@ -247,7 +261,7 @@ func (r *JobRunner) WarmUpCache() {
 		go func() {
 			defer wg.Done()
 			log.Printf("Warming up cache for %s...", chain.name)
-			pools, err := loader.GetAllPoolStats(chain.indexer, chainId)
+			pools, _, err := loader.FetchAllPoolStats(chain.indexer, chainId)
 			if err != nil {
 				log.Printf("Error fetching pool stats for chain %s: %v", chainId, err)
 				return
@@ -281,13 +295,13 @@ func (r *JobRunner) WarmUpCache() {
 	wg.Wait()
 
 	type chainToken struct {
-		token string
+		token types.EthAddress
 		chain string
 		count int
 	}
 
 	allTokens := []chainToken{}
-	allUserAddressesMap := map[string]struct{}{}
+	allUserAddressesMap := map[types.EthAddress]struct{}{}
 	for _, chain := range chains {
 		for token, events := range chain.tokens {
 			allTokens = append(allTokens, chainToken{token, chain.name, events})
@@ -297,7 +311,7 @@ func (r *JobRunner) WarmUpCache() {
 		}
 	}
 
-	allUserAddresses := []string{}
+	allUserAddresses := []types.EthAddress{}
 	for user := range allUserAddressesMap {
 		allUserAddresses = append(allUserAddresses, user)
 	}
@@ -352,7 +366,7 @@ func (r *JobRunner) WarmUpCache() {
 			for _, user := range allUserAddresses[i:end] {
 				job := Job{
 					ConfigPath: "ens_address",
-					ReqID:      user,
+					ReqID:      string(user),
 					Args:       json.RawMessage(fmt.Sprintf(`{"address": "%s"}`, user)),
 				}
 				batch = append(batch, job)

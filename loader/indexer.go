@@ -12,28 +12,46 @@ import (
 )
 
 type PoolLoc struct {
-	ChainId string `json:"chainId"`
-	Base    string `json:"base"`
-	Quote   string `json:"quote"`
-	PoolIdx int    `json:"poolIdx"`
+	ChainId types.ChainId    `json:"chainId"`
+	Base    types.EthAddress `json:"base"`
+	Quote   types.EthAddress `json:"quote"`
+	PoolIdx int              `json:"poolIdx"`
 }
 
 type PoolStats struct {
 	PoolLoc
-	Events int `json:"events"`
+	BaseUsdPrice      float64 `json:"baseUsdPrice"`
+	QuoteUsdPrice     float64 `json:"quoteUsdPrice"`
+	LastPriceSwap     float64 `json:"lastPriceSwap"`
+	PriceSwap24HAgo   float64 `json:"priceSwap24hAgo"`
+	BaseTvl           float64 `json:"baseTvl"`
+	QuoteTvl          float64 `json:"quoteTvl"`
+	BaseVolume        float64 `json:"baseVolume"`
+	BaseVolume24HAgo  float64 `json:"baseVolume24hAgo"`
+	QuoteVolume       float64 `json:"quoteVolume"`
+	QuoteVolume24HAgo float64 `json:"quoteVolume24hAgo"`
+	BaseFees          float64 `json:"baseFees"`
+	BaseFees24HAgo    float64 `json:"baseFees24hAgo"`
+	QuoteFees         float64 `json:"quoteFees"`
+	QuoteFees24HAgo   float64 `json:"quoteFees24hAgo"`
+	FeeRate           float64 `json:"feeRate"`
+	InitTime          int     `json:"initTime"`
+	LatestTime        int     `json:"latestTime"`
+	Events            int     `json:"events"`
 }
 
 type PoolTx struct {
-	User string `json:"user"`
+	User types.EthAddress `json:"user"`
 }
 
-func GetAllPoolStats(indexerEndpoint string, chainId types.ChainId) (result []PoolStats, err error) {
+func FetchAllPoolStats(indexerEndpoint string, chainId types.ChainId) (result []PoolStats, provenance string, err error) {
 	url, err := url.Parse(indexerEndpoint)
 	query := url.Query()
 	query.Add("chainId", string(chainId))
+	query.Add("with24hPrices", "true")
 	url.RawQuery = query.Encode()
 	url.Path += "/all_pool_stats"
-	log.Println("Fetching all pool stats:", url.String())
+	// log.Println("Fetching all pool stats:", url.String())
 	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -41,21 +59,24 @@ func GetAllPoolStats(indexerEndpoint string, chainId types.ChainId) (result []Po
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Println("Indexer connection error: " + err.Error())
-		return nil, err
+		return nil, "", err
 	}
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Println("Indexer read error: " + err.Error())
-		return nil, err
+		return nil, "", err
 	}
 	type IndexerResp struct {
-		Data []PoolStats `json:"data"`
+		Data       []PoolStats `json:"data"`
+		Provenance struct {
+			Hostname string `json:"hostname"`
+		} `json:"provenance"`
 	}
 	response := IndexerResp{}
 	err = json.Unmarshal(body, &response)
-	return response.Data, err
+	return response.Data, response.Provenance.Hostname, err
 }
 
 func GetPoolTxs(indexerEndpoint string, pool PoolLoc) (result []PoolTx, err error) {

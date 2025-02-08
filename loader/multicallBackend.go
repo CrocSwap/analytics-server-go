@@ -107,12 +107,12 @@ func multicallAbi() abi.ABI {
 	file, err := os.Open(filePath)
 
 	if err != nil {
-		log.Fatalf("Failed to read ABI contract at " + filePath)
+		log.Panicf("Failed to read ABI contract at %s", filePath)
 	}
 
 	parsedABI, err := abi.JSON(file)
 	if err != nil {
-		log.Fatalf("Failed to parse contract ABI: %v", err)
+		log.Panicf("Failed to parse contract ABI: %v", err)
 	}
 
 	return parsedABI
