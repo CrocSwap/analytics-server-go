@@ -20,24 +20,24 @@ type PoolLoc struct {
 
 type PoolStats struct {
 	PoolLoc
-	BaseUsdPrice      float64 `json:"baseUsdPrice"`
-	QuoteUsdPrice     float64 `json:"quoteUsdPrice"`
-	LastPriceSwap     float64 `json:"lastPriceSwap"`
-	PriceSwap24HAgo   float64 `json:"priceSwap24hAgo"`
-	BaseTvl           float64 `json:"baseTvl"`
-	QuoteTvl          float64 `json:"quoteTvl"`
-	BaseVolume        float64 `json:"baseVolume"`
-	BaseVolume24HAgo  float64 `json:"baseVolume24hAgo"`
-	QuoteVolume       float64 `json:"quoteVolume"`
-	QuoteVolume24HAgo float64 `json:"quoteVolume24hAgo"`
-	BaseFees          float64 `json:"baseFees"`
-	BaseFees24HAgo    float64 `json:"baseFees24hAgo"`
-	QuoteFees         float64 `json:"quoteFees"`
-	QuoteFees24HAgo   float64 `json:"quoteFees24hAgo"`
-	FeeRate           float64 `json:"feeRate"`
-	InitTime          int     `json:"initTime"`
-	LatestTime        int     `json:"latestTime"`
-	Events            int     `json:"events"`
+	BaseUsdPrice      *float64 `json:"baseUsdPrice"`
+	QuoteUsdPrice     *float64 `json:"quoteUsdPrice"`
+	LastPriceSwap     float64  `json:"lastPriceSwap"`
+	PriceSwap24HAgo   float64  `json:"priceSwap24hAgo"`
+	BaseTvl           float64  `json:"baseTvl"`
+	QuoteTvl          float64  `json:"quoteTvl"`
+	BaseVolume        float64  `json:"baseVolume"`
+	BaseVolume24HAgo  float64  `json:"baseVolume24hAgo"`
+	QuoteVolume       float64  `json:"quoteVolume"`
+	QuoteVolume24HAgo float64  `json:"quoteVolume24hAgo"`
+	BaseFees          float64  `json:"baseFees"`
+	BaseFees24HAgo    float64  `json:"baseFees24hAgo"`
+	QuoteFees         float64  `json:"quoteFees"`
+	QuoteFees24HAgo   float64  `json:"quoteFees24hAgo"`
+	FeeRate           float64  `json:"feeRate"`
+	InitTime          int      `json:"initTime"`
+	LatestTime        int      `json:"latestTime"`
+	Events            int      `json:"events"`
 }
 
 type PoolTx struct {

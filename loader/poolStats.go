@@ -148,8 +148,16 @@ func (l *Loader) GetAllPoolStats(loc PoolLoc) (allStatsJson []byte) {
 				TokenAddress:  string(stats.Quote),
 				AssetPlatform: assetPlatformMap[stats.ChainId],
 			}
-			stats.BaseUsdPrice = l.poolStatsWorker.prices[baseArgs]
-			stats.QuoteUsdPrice = l.poolStatsWorker.prices[quoteArgs]
+			var basePrice *float64
+			if price, ok := l.poolStatsWorker.prices[baseArgs]; ok {
+				basePrice = &price
+			}
+			var quotePrice *float64
+			if price, ok := l.poolStatsWorker.prices[quoteArgs]; ok {
+				quotePrice = &price
+			}
+			stats.BaseUsdPrice = basePrice
+			stats.QuoteUsdPrice = quotePrice
 			allStats = append(allStats, stats)
 		}
 	}
