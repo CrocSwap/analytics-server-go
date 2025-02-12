@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/CrocSwap/analytics-server-go/job_runner"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,6 +18,7 @@ func (s *APIWebServer) Serve(prefix string, listenAddress string) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	r.Use(CORSMiddleware())
+	r.Use(gzip.Gzip(gzip.DefaultCompression))
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.GET(prefix+"/", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.GET(prefix+"/run", s.runJob)
