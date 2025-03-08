@@ -39,6 +39,7 @@ var ONE_USD_STABLECOINS = []string{
 	"0xa849026cda282eeebc3c39afcbe87a69424f16b4",
 	"0xdddd73f5df1f0dc31373357beac77545dc5a6f3f",
 	"0x6f2a1a886dbf8e36c4fa9f25a517861a930fbf3a",
+	"0xeb466342c4d449bc9f53a865d5cb90586f405215",
 }
 
 type PriceArgs struct {
@@ -80,7 +81,7 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespJson []byte, respCached bool
 	normalArgs := l.fuzzyTokenLookup(args)
 
 	// Since no price sources support these chains, return empty responses.
-	if normalArgs.AssetPlatform == "plume" || normalArgs.AssetPlatform == "swell" {
+	if normalArgs.AssetPlatform == "plume" || normalArgs.AssetPlatform == "swell" || strings.HasPrefix(normalArgs.AssetPlatform, "monad") {
 		priceResp := PriceResp{}
 		priceRespJson, _ = json.Marshal(priceResp)
 		return priceRespJson, true, nil
@@ -193,7 +194,7 @@ func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string, ctx contex
 		"precision":     "full",
 	}
 	tokenId := args.TokenAddress
-	if args.TokenAddress == "0x0000000000000000000000000000000000000000" {
+	if args.TokenAddress == ZERO_ADDRESS && !strings.HasPrefix(args.AssetPlatform, "monad") {
 		urlString += "/simple/price"
 		tokenId = "ethereum"
 		params["ids"] = tokenId
@@ -307,7 +308,7 @@ type DexScreenerTokensResp struct {
 
 func (l *Loader) fetchDexScreenerPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
 	tokenAddress := args.TokenAddress
-	if tokenAddress == "0x0000000000000000000000000000000000000000" {
+	if tokenAddress == ZERO_ADDRESS && !strings.HasPrefix(args.AssetPlatform, "monad") {
 		tokenAddress = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 	}
 	log.Println("DexScreener price fetch", args)
@@ -489,7 +490,7 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		default: // maybe bridged token
 			counterpart := l.getScrollCounterpart(args.TokenAddress)
 			if counterpart != "" && counterpart != ZERO_ADDRESS {
-				log.Println("Found scroll counterpart", counterpart, "for", args.TokenAddress)
+				// log.Println("Found scroll counterpart", counterpart, "for", args.TokenAddress)
 				args.TokenAddress = counterpart
 				args.AssetPlatform = "ethereum"
 			}
@@ -559,6 +560,13 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		case "0xdddd73f5df1f0dc31373357beac77545dc5a6f3f": // pUSD
 			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" // TODO: change once there are price sources
 			args.AssetPlatform = "ethereum"
+		}
+	case "monadTestnet":
+		fallthrough
+	case "monad":
+		switch args.TokenAddress {
+		case ZERO_ADDRESS:
+			// TODO: add MON price after mainnet
 		}
 	}
 	return args

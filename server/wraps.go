@@ -44,7 +44,9 @@ func wrapDataErrResp(c *gin.Context, result any, err error) {
 
 func wrapPrecompDataErrResp(c *gin.Context, result json.RawMessage, err error) {
 	if err != nil {
-		c.String(http.StatusInternalServerError, err.Error())
+		c.JSON(http.StatusInternalServerError, struct {
+			Error string `json:"error"`
+		}{err.Error()})
 	} else {
 		c.JSON(http.StatusOK, result)
 	}

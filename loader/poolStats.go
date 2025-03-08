@@ -30,9 +30,10 @@ var assetPlatformMap = map[types.ChainId]string{
 	"0x13e31": "blast",
 	"0x18231": "plume",
 	"0x82750": "scroll",
+	"0x279f":  "monad",
 }
 
-var chainOrder = []types.ChainId{"0x1", "0x82750", "0x13e31", "0x783", "0x18231"}
+var chainOrder = []types.ChainId{"0x1", "0x82750", "0x13e31", "0x783", "0x18231", "0x279f"}
 
 func (s *PoolStatsWorker) RunPoolStatsWorker() {
 	go s.priceWorker()
@@ -134,7 +135,6 @@ func (s *PoolStatsWorker) priceWorker() {
 }
 
 func (l *Loader) GetAllPoolStats(loc PoolLoc) (allStatsJson []byte) {
-	log.Println("GetAllPoolStats", loc)
 	allStats := make([]PoolStats, 0, len(l.poolStatsWorker.poolStats))
 	l.poolStatsWorker.pricesLock.RLock()
 	defer l.poolStatsWorker.pricesLock.RUnlock()

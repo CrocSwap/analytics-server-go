@@ -140,13 +140,14 @@ func (c *BatchedEthClient) contractDataCall(contract types.EthAddress, data []by
 			if result.Error != nil && strings.HasPrefix(result.Error.Error(), "execution reverted") {
 				return []byte{}, result.Error
 			}
-			log.Printf("Warning multicall for %s success=%v, calling manually. Error: %v", c.Cfg.NetworkName, result.Success, result.Error)
-			return c.singleContractDataCall(contract, data, nil)
+			log.Printf("Warning multicall for %s success=%v, failing. Error: %v", c.Cfg.NetworkName, result.Success, result.Error)
+			// return c.singleContractDataCall(contract, data, nil)
+			return []byte{}, result.Error
 		}
 		return result.ReturnData, nil
 	case <-time.After(MULTICALL_TIMEOUT_MS * time.Millisecond):
-		log.Println("Multicall timed out, calling manually")
-		return c.singleContractDataCall(contract, data, nil)
+		log.Println("Multicall timed out, failing")
+		return []byte{}, errors.New("multicall timed out")
 	}
 }
 

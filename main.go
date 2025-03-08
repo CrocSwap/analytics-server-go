@@ -15,11 +15,12 @@ func main() {
 	var listenAddr = flag.String("listenAddr", "0.0.0.0:8080", "listen address")
 	var netCfgPath = flag.String("netCfg", "./config/networks.json", "network config file")
 	var skipWarmup = flag.Bool("skipWarmup", false, "skip cache warmup")
+	var disablePoolStats = flag.Bool("disablePoolStats", false, "disable pool stats worker from filling cache")
 	flag.Parse()
 
 	log.Println("Starting analytics server at", *listenAddr)
 	netCfg := loader.LoadNetworkConfig(*netCfgPath)
-	jobRunner := job_runner.NewJobRunner(netCfg)
+	jobRunner := job_runner.NewJobRunner(netCfg, *disablePoolStats)
 	done := make(chan bool)
 
 	if !*skipWarmup {

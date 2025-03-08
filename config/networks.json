@@ -51,5 +51,16 @@
     "multicall_contract": "0xca11bde05977b3631167028862be2a173976ca11",
     "multicall_max_batch": 100,
     "multicall_interval_ms": 1000
+  },
+  "monad": {
+    "chain_id": 10143,
+    "rpc": "",
+    "graphcache": "https://ambindexer.net/gcgo-testnet",
+    "query_contract": "0x1c74dd2df010657510715244da10ba19d1f3d2b7",
+    "knockout_tick_width": 4,
+    "multicall_disabled": false,
+    "multicall_contract": "0xca11bde05977b3631167028862be2a173976ca11",
+    "multicall_max_batch": 100,
+    "multicall_interval_ms": 1000
   }
 }
