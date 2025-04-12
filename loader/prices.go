@@ -543,11 +543,11 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		}
 	case "plume":
 		switch args.TokenAddress {
-		case ZERO_ADDRESS:
+		case ZERO_ADDRESS: // PLUME
+			fallthrough
+		case "0xea237441c92cae6fc17caaf9a7acb3f953be4bd1": // WPLUME
+			args.TokenAddress = "0x4c1746a800d224393fe2470c70a35717ed4ea5f1"
 			args.AssetPlatform = "ethereum"
-			// case "PLUME": // PLUME
-			// 	args.TokenAddress = "0x4c1746a800d224393fe2470c70a35717ed4ea5f1"
-			// 	args.AssetPlatform = "ethereum"
 		case "0x3938a812c54304feffd266c7e2e70b48f9475ad6": // USDC.e
 			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 			args.AssetPlatform = "ethereum"

@@ -1,10 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/CrocSwap/analytics-server-go/job_runner"
@@ -58,19 +58,23 @@ func (s *APIWebServer) runJob(c *gin.Context) {
 // Sets Cache-Control and Last-Modified headers for the response, and optionally checks the
 // If-Modified-Since header and sets status to 304 if the content has not changed.
 func (s *APIWebServer) setCacheHeaders(c *gin.Context, maxAgeSecs int, lastModified int) (notModified bool) {
-	c.Header("Cache-Control", "public, max-age="+strconv.Itoa(maxAgeSecs))
+	staleIfError := 18 * 3600
+	if maxAgeSecs <= 0 {
+		staleIfError = 0
+	}
+	c.Header("Cache-Control", fmt.Sprintf("public, max-age=%d, stale-if-error=%d", maxAgeSecs, staleIfError))
 	if lastModified <= 0 {
 		return false
 	}
 	modifiedDate := time.Unix(int64(lastModified), 0).Format("Mon, 02 Jan 2006 15:04:05 MST")
 	c.Header("Last-Modified", modifiedDate)
 	if c.Request.Header.Get("If-Modified-Since") != "" {
-		headerTime, err := time.Parse("Mon, 02 Jan 2006 15:04:05 MST", c.Request.Header.Get("If-Modified-Since"))
+		clientTime, err := time.Parse("Mon, 02 Jan 2006 15:04:05 MST", c.Request.Header.Get("If-Modified-Since"))
 		if err != nil {
 			log.Println("Error parsing header time", err)
-			headerTime = time.Time{}
+			clientTime = time.Time{}
 		}
-		if headerTime.Unix() >= int64(lastModified) {
+		if clientTime.Unix() >= int64(lastModified) {
 			c.Status(http.StatusNotModified)
 			return true
 		}

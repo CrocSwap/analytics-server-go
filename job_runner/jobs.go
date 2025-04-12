@@ -248,7 +248,7 @@ outer:
 func (r *JobRunner) RunScheduled(job InProgressJob, timeout time.Duration) (resp []byte, meta JobResultMeta, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	resultChan := make(chan JobResult)
+	resultChan := make(chan JobResult, 1)
 
 	go func(job Job) {
 		defer func() {
@@ -280,6 +280,7 @@ func (r *JobRunner) Execute(j Job) (resp []byte, resultMeta JobResultMeta, err e
 			err = errors.New("internal error")
 		}
 	}()
+	resultMeta = JobResultMeta{MaxAgeSecs: 60} // default value for errors
 	//sleep random time from 0 to 15 seconds
 	switch j.ConfigPath {
 	case "ens_address":
@@ -311,10 +312,12 @@ func (r *JobRunner) Execute(j Job) (resp []byte, resultMeta JobResultMeta, err e
 	}
 
 	if err != nil {
+		resultMeta = JobResultMeta{MaxAgeSecs: 60}
 		log.Printf("Error executing job %v: %s", string(j.Args), err)
 	}
 
 	if resp == nil {
+		resultMeta = JobResultMeta{MaxAgeSecs: 60}
 		resp = []byte("{\"error\": \"internal error\"}")
 	}
 	return
