@@ -73,7 +73,7 @@ func (l *Loader) AddToCache(key string, data []byte, ttl time.Duration) {
 	}
 }
 
-func (l *Loader) GetFromCache(key string) (data []byte, ok bool) {
+func (l *Loader) GetFromCache(key string) (data []byte, expiresAt time.Time, ok bool) {
 	hash := fnv.New128a()
 	hash.Write([]byte(key))
 
@@ -81,18 +81,19 @@ func (l *Loader) GetFromCache(key string) (data []byte, ok bool) {
 	defer l.CacheLock.RUnlock()
 	entry, ok := l.Cache[[16]byte(hash.Sum(nil))]
 	if !ok {
-		return nil, false
+		return
 	}
 
 	if time.Now().After(entry.ExpiresAt) {
-		return nil, false
+		ok = false
+		return
 	}
 
-	return entry.Data, true
+	return entry.Data, entry.ExpiresAt, true
 }
 
 func (l *Loader) GetFloat64FromCache(key string) (data float64, ok bool) {
-	bytes, ok := l.GetFromCache(key)
+	bytes, _, ok := l.GetFromCache(key)
 	if !ok {
 		return
 	}

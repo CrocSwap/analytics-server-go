@@ -28,12 +28,12 @@ var assetPlatformMap = map[types.ChainId]string{
 	"0x1":     "ethereum",
 	"0x783":   "swell",
 	"0x13e31": "blast",
-	"0x18231": "plume",
+	"0x18232": "plume",
 	"0x82750": "scroll",
 	"0x279f":  "monad",
 }
 
-var chainOrder = []types.ChainId{"0x1", "0x82750", "0x13e31", "0x783", "0x18231", "0x279f"}
+var chainOrder = []types.ChainId{"0x1", "0x82750", "0x13e31", "0x783", "0x18232", "0x279f"}
 
 func (s *PoolStatsWorker) RunPoolStatsWorker() {
 	go s.priceWorker()

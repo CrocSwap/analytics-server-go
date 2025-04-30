@@ -19,24 +19,32 @@ type EnsResp struct {
 	Ens *string `json:"ens_address"`
 }
 
-func (l *Loader) GetEns(address string) (ensRespJson []byte, err error) {
+func (l *Loader) GetEns(address string) (ensRespJson []byte, expiresAt time.Time, err error) {
 	address = strings.ToLower(address)
 	cacheKey := "ens" + address
-	if cached, ok := l.GetFromCache(cacheKey); ok {
-		return cached, nil
+	if cached, expiresAt, ok := l.GetFromCache(cacheKey); ok {
+		return cached, expiresAt, nil
 	}
 
-	ensResp, err := l.fetchEns(address)
+	// Pre-cache empty response to avoid retrying too many times
+	emptyEnsResp := EnsResp{Ens: nil}
+	emptyEnsRespJson, _ := json.Marshal(emptyEnsResp)
+	l.AddToCache(cacheKey, emptyEnsRespJson, 60*time.Second)
+	expiresAt = time.Now().Add(60 * time.Second)
+
+	var ensResp EnsResp
+	ensResp, err = l.fetchEns(address)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	ensRespJson, err = json.Marshal(ensResp)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	l.AddToCache(cacheKey, ensRespJson, ENS_CACHE_TTL)
+	expiresAt = time.Now().Add(ENS_CACHE_TTL)
 	return
 }
 
@@ -51,7 +59,10 @@ func (l *Loader) fetchEns(address string) (ensResp EnsResp, err error) {
 	}()
 
 	var domain string
-	for i := 0; i < ENS_MAX_RETRIES; i++ {
+	for i := range ENS_MAX_RETRIES {
+		if i > 0 {
+			log.Printf("fetchEns retry #%d for \"%s\", last error: \"%s\"", i, address, err)
+		}
 		domain, err = ens.ReverseResolve(l.ethClients[1], common.HexToAddress(address))
 		if err != nil && (err.Error() == "not a resolver" || err.Error() == "no resolution" || err.Error() == "no contract code at given address") {
 			ensResp.Ens = nil

@@ -211,6 +211,10 @@ func (r *JobRunner) RunBatch(jobs []Job, timeout time.Duration) (results []JobRe
 			jobResultChan := r.ScheduleJob(job)
 			select {
 			case result := <-jobResultChan:
+				if result.Err != nil {
+					// To prevent leaking errors to users:
+					result.Err = errors.New("internal error")
+				}
 				resultChan <- JobResult{ID: job.ReqID, Result: result.Result, Err: result.Err}
 			case <-ctx.Done():
 				resultChan <- JobResult{ID: job.ReqID, Err: errors.New("timed out")}
@@ -281,6 +285,7 @@ func (r *JobRunner) Execute(j Job) (resp []byte, resultMeta JobResultMeta, err e
 		}
 	}()
 	resultMeta = JobResultMeta{MaxAgeSecs: 60} // default value for errors
+	var expiresAt time.Time
 	//sleep random time from 0 to 15 seconds
 	switch j.ConfigPath {
 	case "ens_address":
@@ -289,8 +294,12 @@ func (r *JobRunner) Execute(j Job) (resp []byte, resultMeta JobResultMeta, err e
 		if err != nil {
 			return nil, resultMeta, err
 		}
-		resultMeta = JobResultMeta{MaxAgeSecs: 48 * 60 * 60}
-		resp, err = r.loader.GetEns(args.Address)
+		// resultMeta = JobResultMeta{MaxAgeSecs: 48 * 60 * 60}
+		resp, expiresAt, err = r.loader.GetEns(args.Address)
+		if err == nil {
+			expiresInSecs := int(time.Until(expiresAt).Seconds())
+			resultMeta = JobResultMeta{MaxAgeSecs: expiresInSecs}
+		}
 	case "price":
 		var args loader.PriceArgs
 		err = json.Unmarshal(j.Args, &args)

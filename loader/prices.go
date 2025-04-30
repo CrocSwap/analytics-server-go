@@ -35,7 +35,9 @@ var ONE_USD_STABLECOINS = []string{
 	"0xca77eb3fefe3725dc33bccb54edefc3d9f764f97",
 	"0x6b175474e89094c44da98b954eedeac495271d0f",
 	"0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34",
+	"0x78add880a697070c1e765ac44d65323a0dcce913",
 	"0x3938a812c54304feffd266c7e2e70b48f9475ad6",
+	"0xda6087e69c51e7d31b6dbad276a3c44703dfdcad",
 	"0xa849026cda282eeebc3c39afcbe87a69424f16b4",
 	"0xdddd73f5df1f0dc31373357beac77545dc5a6f3f",
 	"0x6f2a1a886dbf8e36c4fa9f25a517861a930fbf3a",
@@ -88,8 +90,12 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespJson []byte, respCached bool
 	}
 
 	cacheKey := "price" + normalArgs.AssetPlatform + normalArgs.TokenAddress
-	if cached, ok := l.GetFromCache(cacheKey); ok {
-		return cached, true, nil
+	if cached, _, ok := l.GetFromCache(cacheKey); ok {
+		resp := PriceResp{}
+		_ = json.Unmarshal(cached, &resp)
+		resp.Value.TokenAddress = args.TokenAddress // de-normalize the address
+		newResp, _ := json.Marshal(resp)
+		return newResp, true, nil
 	}
 
 	// Ordered by priority. CoinGecko prices are more reliable.
@@ -183,7 +189,7 @@ type llamaCoinPrice struct {
 const COINGECKO_NO_PRICE_CACHE_TTL = 4 * time.Hour
 
 func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
-	if _, ok := l.GetFromCache("coingecko_missing" + cacheKey); ok {
+	if _, _, ok := l.GetFromCache("coingecko_missing" + cacheKey); ok {
 		return
 	}
 	log.Println("CoinGecko price fetch", args)
@@ -239,7 +245,7 @@ const LLAMA_MIN_CONFIDENCE = 0.5
 const LLAMA_NO_PRICE_CACHE_TTL = 5 * time.Minute
 
 func (l *Loader) fetchLlamaPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
-	if _, ok := l.GetFromCache("llama_missing" + cacheKey); ok {
+	if _, _, ok := l.GetFromCache("llama_missing" + cacheKey); ok {
 		return
 	}
 	log.Println("Llama price fetch", args)
@@ -548,14 +554,26 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		case "0xea237441c92cae6fc17caaf9a7acb3f953be4bd1": // WPLUME
 			args.TokenAddress = "0x4c1746a800d224393fe2470c70a35717ed4ea5f1"
 			args.AssetPlatform = "ethereum"
-		case "0x3938a812c54304feffd266c7e2e70b48f9475ad6": // USDC.e
+		case "0x78add880a697070c1e765ac44d65323a0dcce913": // USDC.e
 			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 			args.AssetPlatform = "ethereum"
-		case "0xa849026cda282eeebc3c39afcbe87a69424f16b4": // USDT
+		case "0x3938a812c54304feffd266c7e2e70b48f9475ad6": // USDC.e (Legacy)
+			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+			args.AssetPlatform = "ethereum"
+		case "0xda6087e69c51e7d31b6dbad276a3c44703dfdcad": // USDT
 			args.TokenAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 			args.AssetPlatform = "ethereum"
-		case "0xd630fb6a07c9c723cf709d2daa9b63325d0e0b73": // pETH
+		case "0xa849026cda282eeebc3c39afcbe87a69424f16b4": // USDT (Legacy)
+			args.TokenAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
+			args.AssetPlatform = "ethereum"
+		case "0xca59ca09e5602fae8b629dee83ffa819741f14be": // WETH
+			args.TokenAddress = ZERO_ADDRESS
+			args.AssetPlatform = "ethereum"
+		case "0x39d1f90ef89c52dda276194e9a832b484ee45574": // pETH
 			args.TokenAddress = ZERO_ADDRESS // TODO: change once there are price sources
+			args.AssetPlatform = "ethereum"
+		case "0xd630fb6a07c9c723cf709d2daa9b63325d0e0b73": // pETH (legacy)
+			args.TokenAddress = ZERO_ADDRESS
 			args.AssetPlatform = "ethereum"
 		case "0xdddd73f5df1f0dc31373357beac77545dc5a6f3f": // pUSD
 			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" // TODO: change once there are price sources
@@ -575,7 +593,7 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 const RPC_MAX_RETRIES = 2
 
 func (l *Loader) getScrollCounterpart(tokenAddress string) (counterpart string) {
-	counterpartBytes, ok := l.GetFromCache("scroll_counterpart_" + tokenAddress)
+	counterpartBytes, _, ok := l.GetFromCache("scroll_counterpart_" + tokenAddress)
 	if ok && counterpartBytes != nil {
 		return string(counterpartBytes)
 	}

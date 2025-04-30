@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -47,6 +48,7 @@ func (s *APIWebServer) runJob(c *gin.Context) {
 	resp, meta, err := s.JobRunner.RunJob(queryMap, rawData)
 	if err != nil {
 		log.Println("Error running job", err)
+		err = errors.New("internal error")
 	}
 	notModified := s.setCacheHeaders(c, meta.MaxAgeSecs, meta.LastModified)
 	if notModified {
