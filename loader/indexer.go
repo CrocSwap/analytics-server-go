@@ -53,7 +53,6 @@ func FetchAllPoolStats(indexerEndpoint string, chainId types.ChainId) (result []
 	url.Path += "/all_pool_stats"
 	// log.Println("Fetching all pool stats:", url.String())
 	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
-	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -91,7 +90,6 @@ func GetPoolTxs(indexerEndpoint string, pool PoolLoc) (result []PoolTx, err erro
 	url.Path += "/pool_txs"
 	log.Println("Fetching pool TXs:", url.String())
 	req, err := http.NewRequest(http.MethodGet, url.String(), nil)
-	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)

@@ -56,3 +56,18 @@ func intToHex(num int) string {
 func IntToChainId(num int) ChainId {
 	return ChainId(intToHex(num))
 }
+
+func (c ChainId) ToInt() int {
+	if strings.HasPrefix(string(c), "0x") {
+		result, err := strconv.ParseInt(string(c)[2:], 16, 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return int(result)
+	}
+	result, err := strconv.Atoi(string(c))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return result
+}

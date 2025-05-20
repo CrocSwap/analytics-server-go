@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/CrocSwap/analytics-server-go/types"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 )
 
@@ -20,6 +21,7 @@ type Loader struct {
 	Cache           map[[16]byte]CacheEntry
 	CacheLock       sync.RWMutex
 	poolStatsWorker PoolStatsWorker
+	vaultsWorker    VaultsWorker
 	httpClient      *http.Client
 	ethClients      map[int]bind.ContractBackend
 }
@@ -58,6 +60,14 @@ func (l *Loader) StartPoolStatsWorker() {
 		poolStats: []PoolStats{},
 	}
 	go l.poolStatsWorker.RunPoolStatsWorker()
+}
+
+func (l *Loader) StartVaultsWorker() {
+	l.vaultsWorker = VaultsWorker{
+		vaults:        make(map[types.ChainId][]byte),
+		vaultsUpdates: make(map[types.ChainId]int64),
+	}
+	go l.vaultsWorker.RunVaultsWorker()
 }
 
 func (l *Loader) AddToCache(key string, data []byte, ttl time.Duration) {

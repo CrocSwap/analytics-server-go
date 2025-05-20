@@ -81,7 +81,7 @@ type JobRunner struct {
 	inProgressJobsLock sync.Mutex
 }
 
-func NewJobRunner(netCfg loader.NetworkConfig, disablePoolStats bool) *JobRunner {
+func NewJobRunner(netCfg loader.NetworkConfig, disablePoolStats bool, disableVaults bool) *JobRunner {
 	jobChannel := make(chan *Request)
 	store := &JobRunner{
 		jobChannel:     jobChannel,
@@ -90,6 +90,9 @@ func NewJobRunner(netCfg loader.NetworkConfig, disablePoolStats bool) *JobRunner
 	}
 	if !disablePoolStats {
 		store.loader.StartPoolStatsWorker()
+	}
+	if !disableVaults {
+		store.loader.StartVaultsWorker()
 	}
 	return store
 }
@@ -316,6 +319,16 @@ func (r *JobRunner) Execute(j Job) (resp []byte, resultMeta JobResultMeta, err e
 		}
 		resultMeta = JobResultMeta{MaxAgeSecs: 30}
 		resp = r.loader.GetAllPoolStats(args)
+	case "vaults":
+		var args struct {
+			ChainId types.ChainId `json:"chainId"`
+		}
+		err = json.Unmarshal(j.Args, &args)
+		if err != nil {
+			return nil, resultMeta, err
+		}
+		resultMeta = JobResultMeta{MaxAgeSecs: 15}
+		resp, err = r.loader.GetVaults(args.ChainId)
 	default:
 		return nil, resultMeta, fmt.Errorf("unknown job type: %s", j.ConfigPath)
 	}
@@ -352,6 +365,16 @@ func parseJobFromQueryMap(queryMap map[string]string) (job Job, err error) {
 		quote := strings.ToLower(queryMap["quote"])
 		chainId := strings.ToLower(queryMap["chainId"])
 		job.Args = json.RawMessage(fmt.Sprintf(`{"chainId": "%s", "base": "%s", "quote": "%s", "poolIdx": %s}`, chainId, base, quote, strconv.Itoa(poolIdx)))
+	case "vaults":
+		chainId := strings.ToLower(queryMap["chainId"])
+		if chainId != "" && !strings.HasPrefix(chainId, "0x") {
+			intChainId, err := strconv.Atoi(chainId)
+			if err != nil {
+				return job, err
+			}
+			chainId = string(types.IntToChainId(intChainId))
+		}
+		job.Args = json.RawMessage(fmt.Sprintf(`{"chainId": "%s"}`, chainId))
 	default:
 		err = fmt.Errorf("unknown job type: %s", job.ConfigPath)
 	}

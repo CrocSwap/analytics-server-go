@@ -25,6 +25,7 @@ func (s *APIWebServer) Serve(prefix string, listenAddress string) {
 	r.GET("/", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.GET(prefix+"/", func(c *gin.Context) { c.Status(http.StatusOK) })
 	r.GET(prefix+"/run", s.runJob)
+	r.GET(prefix+"/vaults", s.getVaults)
 	r.POST(prefix+"/run", s.runJob)
 
 	log.Println("API Serving at", prefix, listenAddress)
@@ -34,6 +35,32 @@ func (s *APIWebServer) Serve(prefix string, listenAddress string) {
 func (s *APIWebServer) runJob(c *gin.Context) {
 	query := c.Request.URL.Query()
 	queryMap := map[string]string{}
+	for k, v := range query {
+		queryMap[k] = v[0]
+	}
+	br := c.Request.Body
+	defer br.Close()
+	rawData, err := io.ReadAll(br)
+	if err != nil {
+		log.Printf("Request body read error: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+		return
+	}
+	resp, meta, err := s.JobRunner.RunJob(queryMap, rawData)
+	if err != nil {
+		log.Println("Error running job", err)
+		err = errors.New("internal error")
+	}
+	notModified := s.setCacheHeaders(c, meta.MaxAgeSecs, meta.LastModified)
+	if notModified {
+		return
+	}
+	wrapPrecompDataErrResp(c, resp, err)
+}
+
+func (s *APIWebServer) getVaults(c *gin.Context) {
+	query := c.Request.URL.Query()
+	queryMap := map[string]string{"service": "run", "config_path": "vaults"}
 	for k, v := range query {
 		queryMap[k] = v[0]
 	}

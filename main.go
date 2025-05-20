@@ -16,11 +16,12 @@ func main() {
 	var netCfgPath = flag.String("netCfg", "./config/networks.json", "network config file")
 	var skipWarmup = flag.Bool("skipWarmup", false, "skip cache warmup")
 	var disablePoolStats = flag.Bool("disablePoolStats", false, "disable pool stats worker from filling cache")
+	var disableVaults = flag.Bool("disableVaults", false, "disable vault worker")
 	flag.Parse()
 
 	log.Println("Starting analytics server at", *listenAddr)
 	netCfg := loader.LoadNetworkConfig(*netCfgPath)
-	jobRunner := job_runner.NewJobRunner(netCfg, *disablePoolStats)
+	jobRunner := job_runner.NewJobRunner(netCfg, *disablePoolStats, *disableVaults)
 	done := make(chan bool)
 
 	if !*skipWarmup {
