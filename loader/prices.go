@@ -83,7 +83,7 @@ func (l *Loader) GetPrice(args PriceArgs) (priceRespJson []byte, respCached bool
 	normalArgs := l.fuzzyTokenLookup(args)
 
 	// Since no price sources support these chains, return empty responses.
-	if normalArgs.AssetPlatform == "plume" || normalArgs.AssetPlatform == "swell" || strings.HasPrefix(normalArgs.AssetPlatform, "monad") {
+	if strings.HasPrefix(normalArgs.AssetPlatform, "monad") {
 		priceResp := PriceResp{}
 		priceRespJson, _ = json.Marshal(priceResp)
 		return priceRespJson, true, nil
@@ -189,6 +189,9 @@ type llamaCoinPrice struct {
 const COINGECKO_NO_PRICE_CACHE_TTL = 4 * time.Hour
 
 func (l *Loader) fetchCoinGeckoPrice(args PriceArgs, cacheKey string, ctx context.Context) (price PriceValue, err error) {
+	if args.AssetPlatform == "plume_mainnet" { // TODO: remove after CG adds support
+		return
+	}
 	if _, _, ok := l.GetFromCache("coingecko_missing" + cacheKey); ok {
 		return
 	}
@@ -546,6 +549,8 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		case "0x58538e6a46e07434d7e7375bc268d3cb839c0133": // ENA
 			args.TokenAddress = "0x57e114b691db790c35207b2e685d4a43181e6061"
 			args.AssetPlatform = "ethereum"
+		default:
+			args.AssetPlatform = "swellchain"
 		}
 	case "plume":
 		switch args.TokenAddress {
@@ -557,27 +562,14 @@ func (l *Loader) fuzzyTokenLookup(args PriceArgs) PriceArgs {
 		case "0x78add880a697070c1e765ac44d65323a0dcce913": // USDC.e
 			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
 			args.AssetPlatform = "ethereum"
-		case "0x3938a812c54304feffd266c7e2e70b48f9475ad6": // USDC.e (Legacy)
-			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
-			args.AssetPlatform = "ethereum"
 		case "0xda6087e69c51e7d31b6dbad276a3c44703dfdcad": // USDT
-			args.TokenAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
-			args.AssetPlatform = "ethereum"
-		case "0xa849026cda282eeebc3c39afcbe87a69424f16b4": // USDT (Legacy)
 			args.TokenAddress = "0xdac17f958d2ee523a2206206994597c13d831ec7"
 			args.AssetPlatform = "ethereum"
 		case "0xca59ca09e5602fae8b629dee83ffa819741f14be": // WETH
 			args.TokenAddress = ZERO_ADDRESS
 			args.AssetPlatform = "ethereum"
-		case "0x39d1f90ef89c52dda276194e9a832b484ee45574": // pETH
-			args.TokenAddress = ZERO_ADDRESS // TODO: change once there are price sources
-			args.AssetPlatform = "ethereum"
-		case "0xd630fb6a07c9c723cf709d2daa9b63325d0e0b73": // pETH (legacy)
-			args.TokenAddress = ZERO_ADDRESS
-			args.AssetPlatform = "ethereum"
-		case "0xdddd73f5df1f0dc31373357beac77545dc5a6f3f": // pUSD
-			args.TokenAddress = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" // TODO: change once there are price sources
-			args.AssetPlatform = "ethereum"
+		default:
+			args.AssetPlatform = "plume_mainnet"
 		}
 	case "monadTestnet":
 		fallthrough

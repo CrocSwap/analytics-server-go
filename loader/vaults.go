@@ -26,13 +26,15 @@ func (s *VaultsWorker) RunVaultsWorker() {
 	for {
 		log.Println("Refreshing vaults")
 		for _, chain := range vaultChains {
-			for retry := 0; retry < 5; retry++ {
+			for retry := range 5 {
 				chainVaults, err := FetchChainVaults(chain)
 				if err != nil {
-					log.Printf("Error fetching vaults for chain \"%s\": %s", chain, err)
-					if chain == "98866" {
+					if chain == "98866" { // no plume yet, but it can still time out
 						log.Printf("Skipping chain \"%s\"", chain)
 						break
+					}
+					if retry > 2 { // noisy
+						log.Printf("Error fetching vaults for chain \"%s\": %s", chain, err)
 					}
 					time.Sleep(5 * time.Second * time.Duration(retry))
 					continue
@@ -61,14 +63,14 @@ func FetchChainVaults(chainId types.ChainId) (result []byte, err error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Println("Tempest API connection error: " + err.Error())
+		err = fmt.Errorf("tempest API connection error: %w", err)
 		return nil, err
 	}
 
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Println("Tempest API read error: " + err.Error())
+		err = fmt.Errorf("tempest API read error: %w", err)
 		return nil, err
 	}
 	type TempestErrResp struct {
@@ -84,6 +86,7 @@ func FetchChainVaults(chainId types.ChainId) (result []byte, err error) {
 	err = json.Unmarshal(body, &response)
 	if err != nil || response.Code != 0 {
 		log.Println("Tempest API err: ", err, " resp: ", response)
+		err = fmt.Errorf("tempest API error: %w", err)
 		return nil, err
 	}
 	return body, err
